@@ -11,8 +11,8 @@ class FeishuNotification:
         self.app_secret = "gp0d4SMwkxQwQOiUnlWJmbhzyOcajlF4"
         self.base_url = "https://open.feishu.cn/open-apis"
         self.access_token = None
-        # 管理员OpenID - 接收通知的用户
-        self.admin_open_id = "ou_038240158a2fd5167b5eb1ca9a000c44"
+        # 使用chat_id发送到群组
+        self.chat_id = "oc_503b5b47c243d0d94824926b79df22ba"  # 这是chat_id
 
     def get_tenant_access_token(self):
         """获取访问令牌"""
@@ -44,7 +44,7 @@ class FeishuNotification:
                 return False
 
         url = f"{self.base_url}/im/v1/messages"
-        params = {"receive_id_type": "open_id"}
+        params = {"receive_id_type": "chat_id"}  # ⚠️ 改为chat_id
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.access_token}"
@@ -54,7 +54,7 @@ class FeishuNotification:
         message_content = self._create_borrow_card(material_name, borrower, student_id, borrow_time)
 
         data = {
-            "receive_id": self.admin_open_id,
+            "receive_id": self.chat_id,  # ⚠️ 使用chat_id
             "msg_type": "interactive",
             "content": json.dumps(message_content)
         }
@@ -63,6 +63,8 @@ class FeishuNotification:
             response = requests.post(url, params=params, headers=headers, json=data, timeout=10)
             response.raise_for_status()
             result = response.json()
+
+            print(f"🔍 飞书API响应: {result}")  # 调试信息
 
             if result.get("code") == 0:
                 logger.info(f"✅ 飞书通知发送成功: {borrower} 借用了 {material_name}")
@@ -106,7 +108,7 @@ class FeishuNotification:
                                 "content": "📊 查看物资状态"
                             },
                             "type": "primary",
-                            "url": "http://localhost:5000/admin"
+                            "url": "http://192.168.1.2:5000/admin"  # ⚠️ 改为实际IP
                         }
                     ]
                 },
