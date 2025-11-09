@@ -1,8 +1,6 @@
 from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime, timedelta
 from .models import db, Material, BorrowRecord
-from .utils.feishu_bot import send_borrow_notification
-from .utils.qr_generator import generate_qr_code
 
 main_bp = Blueprint('main', __name__)
 
@@ -19,6 +17,9 @@ def index():
             "生成二维码": "POST /api/generate-qrcodes"
         }
     })
+
+
+from app.utils.feishu_service import feishu_notifier
 
 
 @main_bp.route('/api/borrow/<int:material_id>', methods=['POST'])
@@ -45,7 +46,7 @@ def borrow_material(material_id):
     material.status = 'borrowed'
     material.current_holder = borrower
     material.borrow_time = datetime.now()
-    material.expected_return = datetime.now() + timedelta(days=7)  # 默认借用7天
+    material.expected_return = datetime.now() + timedelta(days=7)
 
     # 创建借用记录
     record = BorrowRecord(
@@ -58,13 +59,16 @@ def borrow_material(material_id):
     db.session.add(record)
     db.session.commit()
 
-    # 异步发送飞书通知
-    # send_borrow_notification.delay(
-    #     material.name,
-    #     borrower,
-    #     student_id,
-    #     material.borrow_time
-    # )
+    # 🚀 发送飞书通知（同步方式）
+    try:
+        feishu_notifier.send_borrow_notification(
+            material.name,
+            borrower,
+            student_id,
+            material.borrow_time
+        )
+    except Exception as e:
+        print(f"⚠️ 飞书通知发送失败，但不影响借用: {e}")
 
     return jsonify({
         "success": True,
