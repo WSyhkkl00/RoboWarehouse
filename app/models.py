@@ -5,7 +5,8 @@ from datetime import datetime
 class Material(db.Model):
     """物资模型"""
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, comment='物资名称')
+    serial_number = db.Column(db.String(50), unique=True, comment='物资编号，如: 3508-001')
+    model_name = db.Column(db.String(100), nullable=False, comment='型号名称，如: 3508电机')
     description = db.Column(db.Text, comment='物资描述')
     qr_code = db.Column(db.String(100), unique=True, comment='二维码文件名')
     category = db.Column(db.String(50), default='其他', comment='分类')
@@ -19,7 +20,8 @@ class Material(db.Model):
         """转换为字典，用于JSON序列化"""
         return {
             'id': self.id,
-            'name': self.name,
+            'model_name': self.model_name,
+            'serial_number': self.serial_number,
             'category': self.category,
             'status': self.status,
             'current_holder': self.current_holder,

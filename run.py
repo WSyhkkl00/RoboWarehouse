@@ -12,7 +12,7 @@ def update_qrcodes_with_current_ip():
 
         for material in materials:
             from app.utils.qr_generator import generate_qr_code
-            qr_filename = generate_qr_code(material.id, material.name, f"http://{current_ip}:5000")
+            qr_filename = generate_qr_code(material.id, material.model_name, f"http://{current_ip}:5000")
             material.qr_code = qr_filename
 
         db.session.commit()

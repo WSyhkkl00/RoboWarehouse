@@ -40,7 +40,7 @@ def borrow_material(material_id):
         return jsonify({"error": "物资不存在"}), 404
 
     if material.status != 'available':
-        return jsonify({"error": f"物资 [{material.name}] 当前不可用，状态: {material.status}"}), 400
+        return jsonify({"error": f"物资 [{material.model_name} ({material.serial_number})] 当前不可用，状态: {material.status}"}), 400
 
     # 更新物资状态
     material.status = 'borrowed'
@@ -59,10 +59,9 @@ def borrow_material(material_id):
     db.session.add(record)
     db.session.commit()
 
-    # 🚀 发送飞书通知（同步方式）
     try:
         feishu_notifier.send_borrow_notification(
-            material.name,
+            f"{material.model_name} ({material.serial_number})",
             borrower,
             student_id,
             material.borrow_time
@@ -72,9 +71,9 @@ def borrow_material(material_id):
 
     return jsonify({
         "success": True,
-        "message": f"✅ 成功借用 [{material.name}]",
+        "message": f"✅ 成功借用 [{material.model_name} ({material.serial_number})]",
         "data": {
-            "material": material.name,
+            "material": f"{material.model_name} ({material.serial_number})",
             "borrower": borrower,
             "borrow_time": material.borrow_time.strftime("%Y-%m-%d %H:%M"),
             "expected_return": material.expected_return.strftime("%Y-%m-%d")
@@ -109,14 +108,27 @@ def generate_all_qrcodes():
 
 @main_bp.route('/admin')
 def admin_page():
-    """美化版管理页面 - 带动态交互效果"""
+    """优化版管理页面 - 简洁清晰版本"""
     materials = Material.query.all()
+
+    # 按型号分组统计
+    from collections import defaultdict
+    category_stats = defaultdict(lambda: {'total': 0, 'available': 0, 'borrowed': 0, 'materials': []})
+
+    for material in materials:
+        category_key = material.model_name
+        category_stats[category_key]['total'] += 1
+        category_stats[category_key]['materials'].append(material)
+        if material.status == 'available':
+            category_stats[category_key]['available'] += 1
+        elif material.status == 'borrowed':
+            category_stats[category_key]['borrowed'] += 1
 
     html = """
     <!DOCTYPE html>
     <html>
     <head>
-        <title>宣城校区机器人实验室物资管理</title>
+        <title>机器人实验室物资管理</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -128,263 +140,395 @@ def admin_page():
 
             body {{ 
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: #f8fafc;
                 min-height: 100vh;
-                padding: 30px;
+                padding: 20px;
                 color: #2d3748;
             }}
 
             .container {{
-                max-width: 1000px;
+                max-width: 1200px;
                 margin: 0 auto;
             }}
 
             .header {{
                 background: white;
-                padding: 30px;
-                border-radius: 20px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-                margin-bottom: 30px;
+                padding: 25px;
+                border-radius: 12px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+                margin-bottom: 25px;
                 text-align: center;
-                position: relative;
-                overflow: hidden;
-            }}
-
-            .header::before {{
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 4px;
-                background: linear-gradient(90deg, #667eea, #764ba2);
+                border: 1px solid #e2e8f0;
             }}
 
             .header h1 {{
                 color: #2d3748;
-                font-size: 36px;
+                font-size: 28px;
                 font-weight: 700;
-                margin-bottom: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 15px;
+                margin-bottom: 8px;
+            }}
+
+            .header p {{
+                color: #718096;
+                margin-bottom: 15px;
             }}
 
             .stats {{
                 display: flex;
                 justify-content: center;
-                gap: 30px;
-                margin-top: 20px;
+                gap: 20px;
+                margin-top: 15px;
                 flex-wrap: wrap;
             }}
 
             .stat-card {{
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-                padding: 20px;
-                border-radius: 12px;
+                background: white;
+                color: #2d3748;
+                padding: 15px;
+                border-radius: 8px;
                 text-align: center;
-                min-width: 120px;
-                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-                transition: transform 0.3s ease;
+                min-width: 100px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                border-left: 4px solid #667eea;
+                transition: all 0.3s ease;
             }}
 
             .stat-card:hover {{
-                transform: translateY(-5px);
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             }}
 
             .stat-number {{
-                font-size: 32px;
+                font-size: 24px;
                 font-weight: 700;
-                margin-bottom: 5px;
+                margin-bottom: 4px;
             }}
 
             .stat-label {{
-                font-size: 14px;
-                opacity: 0.9;
+                font-size: 12px;
+                color: #718096;
             }}
 
-            .materials-grid {{
+            .category-grid {{
                 display: grid;
                 gap: 20px;
-                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
             }}
 
-            .material-card {{
+            .category-card {{
                 background: white;
-                padding: 25px;
-                border-radius: 16px;
-                box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+                padding: 20px;
+                border-radius: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                border: 1px solid #e2e8f0;
                 transition: all 0.3s ease;
-                border-left: 4px solid;
                 position: relative;
                 overflow: hidden;
             }}
 
-            .material-card:hover {{
-                transform: translateY(-5px);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            /* 正常卡片效果 */
+            .category-card:hover {{
+                transform: translateY(-3px);
+                box-shadow: 0 4px 15px rgba(0,0,0,0.12);
             }}
 
-            .material-card.available {{
-                border-left-color: #52c41a;
+            /* 已借完卡片效果 */
+            .category-card.sold-out {{
+                background: linear-gradient(135deg, #fff5f5, #fed7d7);
+                border: 1px solid #feb2b2;
             }}
 
-            .material-card.borrowed {{
-                border-left-color: #ff4d4f;
+            .category-card.sold-out::before {{
+                content: '🈳 已借完';
+                position: absolute;
+                top: 10px;
+                right: -30px;
+                background: #e53e3e;
+                color: white;
+                padding: 5px 40px;
+                font-size: 12px;
+                font-weight: 700;
+                transform: rotate(45deg);
+                box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3);
             }}
 
-            .material-header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
+            .category-card.sold-out:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(229, 62, 62, 0.2);
+            }}
+
+            .category-card.sold-out .category-name {{
+                color: #742a2a;
+            }}
+
+            .category-card.sold-out .category-name-short {{
+                color: #9b2c2c;
+            }}
+
+            .category-card.sold-out .mini-stat.available {{
+                background: #fed7d7;
+                color: #c53030;
+                border: 1px solid #feb2b2;
+            }}
+
+            .category-header {{
                 margin-bottom: 15px;
+                padding-bottom: 15px;
+                border-bottom: 1px solid #e2e8f0;
             }}
 
-            .material-name {{
+            .category-card.sold-out .category-header {{
+                border-bottom-color: #feb2b2;
+            }}
+
+            .category-name {{
                 font-size: 18px;
                 font-weight: 700;
                 color: #2d3748;
-                margin-bottom: 5px;
+                margin-bottom: 8px;
+                line-height: 1.3;
+                word-break: break-word;
             }}
 
-            .material-id {{
-                color: #718096;
+            .category-name-short {{
                 font-size: 14px;
+                color: #718096;
+                font-weight: 500;
+                margin-bottom: 8px;
             }}
 
-            .status-badge {{
-                padding: 6px 12px;
-                border-radius: 20px;
+            .category-stats {{
+                display: flex;
+                gap: 12px;
+            }}
+
+            .mini-stat {{
+                text-align: center;
+                padding: 8px;
+                border-radius: 6px;
+                min-width: 60px;
                 font-size: 12px;
+                transition: all 0.3s ease;
+            }}
+
+            .mini-stat:hover {{
+                transform: scale(1.05);
+            }}
+
+            .mini-stat.total {{
+                background: #ebf8ff;
+                color: #3182ce;
+            }}
+
+            .mini-stat.available {{
+                background: #f0fff4;
+                color: #38a169;
+            }}
+
+            .mini-stat.borrowed {{
+                background: #fff5f5;
+                color: #e53e3e;
+            }}
+
+            .mini-number {{
+                font-size: 16px;
+                font-weight: 700;
+                margin-bottom: 2px;
+            }}
+
+            .mini-label {{
+                font-size: 11px;
                 font-weight: 600;
-                white-space: nowrap;
+            }}
+
+            .items-list {{
+                margin-top: 15px;
+            }}
+
+            .item-row {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 0;
+                border-bottom: 1px solid #f7fafc;
+                transition: all 0.3s ease;
+            }}
+
+            .item-row:hover {{
+                background: #f8f9fa;
+                border-radius: 6px;
+                padding: 10px 8px;
+            }}
+
+            .item-row:last-child {{
+                border-bottom: none;
+            }}
+
+            .item-info {{
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex: 1;
+                min-width: 0;
+            }}
+
+            .item-serial {{
+                font-weight: 600;
+                color: #4a5568;
+                font-size: 14px;
+                min-width: 70px;
+                flex-shrink: 0;
+            }}
+
+            .item-status {{
+                padding: 4px 8px;
+                border-radius: 10px;
+                font-size: 11px;
+                font-weight: 600;
+                flex-shrink: 0;
             }}
 
             .status-available {{
-                background: #f6ffed;
-                color: #52c41a;
-                border: 1px solid #b7eb8f;
+                background: #f0fff4;
+                color: #38a169;
+                border: 1px solid #9ae6b4;
             }}
 
             .status-borrowed {{
-                background: #fff2f0;
-                color: #ff4d4f;
-                border: 1px solid #ffccc7;
+                background: #fed7d7;
+                color: #e53e3e;
+                border: 1px solid #fc8181;
             }}
 
-            .material-info {{
-                margin-bottom: 20px;
-            }}
-
-            .info-row {{
-                display: flex;
-                justify-content: space-between;
-                padding: 8px 0;
-                border-bottom: 1px solid #f7fafc;
-            }}
-
-            .info-label {{
+            .item-holder {{
+                font-size: 12px;
                 color: #718096;
-                font-weight: 500;
+                flex: 1;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                min-width: 0;
             }}
 
-            .info-value {{
-                color: #2d3748;
-                font-weight: 600;
-            }}
-
-            .action-buttons {{
+            .item-actions {{
                 display: flex;
-                gap: 10px;
-                flex-wrap: wrap;
+                gap: 6px;
+                flex-shrink: 0;
             }}
 
             .action-btn {{
-                flex: 1;
-                padding: 10px 16px;
+                padding: 6px 10px;
                 border: none;
-                border-radius: 8px;
-                font-size: 12px;
+                border-radius: 5px;
+                font-size: 11px;
                 font-weight: 600;
                 cursor: pointer;
                 text-decoration: none;
-                text-align: center;
-                transition: all 0.3s ease;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 5px;
-                min-width: 120px;
+                transition: all 0.2s;
+                white-space: nowrap;
+            }}
+
+            .action-btn:hover {{
+                transform: translateY(-1px);
+                opacity: 0.9;
             }}
 
             .qr-btn {{
-                background: linear-gradient(135deg, #1890ff, #40a9ff);
+                background: #3182ce;
                 color: white;
-            }}
-
-            .qr-btn:hover {{
-                background: linear-gradient(135deg, #096dd9, #1890ff);
-                transform: translateY(-2px);
             }}
 
             .borrow-btn {{
-                background: linear-gradient(135deg, #52c41a, #73d13d);
+                background: #38a169;
                 color: white;
             }}
 
-            .borrow-btn:hover {{
-                background: linear-gradient(135deg, #389e0d, #52c41a);
-                transform: translateY(-2px);
+            .detail-btn {{
+                background: #805ad5;
+                color: white;
+            }}
+
+            /* 已借完卡片的按钮样式 */
+            .category-card.sold-out .borrow-btn {{
+                background: #a0aec0;
+                color: #718096;
+                cursor: not-allowed;
+            }}
+
+            .category-card.sold-out .borrow-btn:hover {{
+                transform: none;
+                opacity: 1;
             }}
 
             .footer {{
-                margin-top: 40px;
+                margin-top: 30px;
                 text-align: center;
                 padding: 20px;
                 background: white;
-                border-radius: 12px;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                border: 1px solid #e2e8f0;
             }}
 
             .footer-links {{
                 display: flex;
                 justify-content: center;
-                gap: 20px;
+                gap: 15px;
                 flex-wrap: wrap;
             }}
 
             .footer-link {{
-                padding: 10px 20px;
-                background: linear-gradient(135deg, #667eea, #764ba2);
+                padding: 8px 16px;
+                background: #667eea;
                 color: white;
                 text-decoration: none;
-                border-radius: 8px;
+                border-radius: 6px;
                 font-weight: 600;
+                font-size: 14px;
                 transition: all 0.3s ease;
             }}
 
             .footer-link:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+                background: #5a67d8;
+                transform: translateY(-1px);
             }}
 
             @keyframes fadeIn {{
-                from {{ opacity: 0; transform: translateY(20px); }}
+                from {{ opacity: 0; transform: translateY(10px); }}
                 to {{ opacity: 1; transform: translateY(0); }}
             }}
 
-            .material-card {{
-                animation: fadeIn 0.6s ease forwards;
+            .category-card {{
+                animation: fadeIn 0.4s ease forwards;
+            }}
+
+            .availability-badge {{
+                display: inline-block;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                margin-left: 8px;
+            }}
+
+            .available-badge {{
+                background: #f0fff4;
+                color: #38a169;
+                border: 1px solid #9ae6b4;
+            }}
+
+            .soldout-badge {{
+                background: #fed7d7;
+                color: #e53e3e;
+                border: 1px solid #fc8181;
             }}
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <h1>宣城校区WDR机器人实验室物资管理系统</h1>
-                <p>全面监控物资状态，智能化管理流程</p>
+                <h1>🤖 机器人实验室物资管理</h1>
+                <p>按型号分类查看物资状态</p>
 
                 <div class="stats">
                     <div class="stat-card">
@@ -402,134 +546,119 @@ def admin_page():
                 </div>
             </div>
 
-            <div class="materials-grid">
-    """.format(
+            <div class="category-grid">
+""".format(
         total_count=len(materials),
         available_count=len([m for m in materials if m.status == 'available']),
         borrowed_count=len([m for m in materials if m.status == 'borrowed'])
     )
 
-    for material in materials:
-        status_text = "🟢 可借用" if material.status == 'available' else "🔴 已借出"
-        status_class = "available" if material.status == 'available' else "borrowed"
-        status_badge_class = "status-available" if material.status == 'available' else "status-borrowed"
+    # 型号名称映射
+    name_mapping = {
+        'C型开发板（stm32F407）': 'C型开发板',
+        'C620电调（3508用）': 'C620电调',
+        '达妙4310电机': '4310电机',
+        '大疆官方遥控器': '大疆遥控器',
+        '大疆官方遥控器接收机': '遥控器接收机'
+    }
+
+    # 按型号分组显示
+    for model_name, stats in category_stats.items():
+        model_materials = stats['materials']
+        short_name = name_mapping.get(model_name, model_name)
+
+        # 判断是否已借完
+        is_sold_out = stats['available'] == 0 and stats['total'] > 0
+        card_class = "category-card sold-out" if is_sold_out else "category-card"
+
+        # 可用性徽章
+        availability_badge = """
+            <span class="availability-badge soldout-badge">🈳 已借完</span>
+        """ if is_sold_out else """
+            <span class="availability-badge available-badge">✅ 有库存</span>
+        """
 
         html += """
-                <div class="material-card {status_class}" style="animation-delay: {delay}ms">
-                    <div class="material-header">
+                <div class="{card_class}" style="animation-delay: {delay}ms">
+                    <div class="category-header">
                         <div>
-                            <div class="material-name">{name}</div>
-                            <div class="material-id">#{id}</div>
+                            <div class="category-name">{model_name} {availability_badge}</div>
+                            <div class="category-name-short">{short_name}</div>
                         </div>
-                        <div class="status-badge {badge_class}">{status_text}</div>
-                    </div>
-
-                    <div class="material-info">
-                        <div class="info-row">
-                            <span class="info-label">分类</span>
-                            <span class="info-value">{category}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">当前持有人</span>
-                            <span class="info-value">{holder}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">借用时间</span>
-                            <span class="info-value">{borrow_time}</span>
+                        <div class="category-stats">
+                            <div class="mini-stat total">
+                                <div class="mini-number">{total}</div>
+                                <div class="mini-label">总数</div>
+                            </div>
+                            <div class="mini-stat available">
+                                <div class="mini-number">{available}</div>
+                                <div class="mini-label">可用</div>
+                            </div>
+                            <div class="mini-stat borrowed">
+                                <div class="mini-number">{borrowed}</div>
+                                <div class="mini-label">已借</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="action-buttons">
-                        <a href="/qrcodes/{qr_code}" target="_blank" class="action-btn qr-btn">
-                            <span>📷</span>
-                            <span>二维码</span>
-                        </a>
-                        <a href="/borrow/{id}" class="action-btn borrow-btn">
-                            <span>🔗</span>
-                            <span>借用链接</span>
-                        </a>
+                    <div class="items-list">
+        """.format(
+            card_class=card_class,
+            delay=(list(category_stats.keys()).index(model_name) * 100) % 400,
+            model_name=model_name,
+            short_name=short_name,
+            availability_badge=availability_badge,
+            total=stats['total'],
+            available=stats['available'],
+            borrowed=stats['borrowed']
+        )
+
+        # 显示该型号下的每个物资
+        for material in model_materials:
+            status_class = "status-available" if material.status == 'available' else "status-borrowed"
+            status_text = "可用" if material.status == 'available' else "已借"
+
+            html += """
+                        <div class="item-row">
+                            <div class="item-info">
+                                <span class="item-serial">{serial_number}</span>
+                                <span class="item-status {status_class}">{status_text}</span>
+                                <span class="item-holder">{holder_display}</span>
+                            </div>
+                            <div class="item-actions">
+                                <a href="/qrcodes/{qr_code}" target="_blank" class="action-btn qr-btn">二维码</a>
+                                {borrow_button}
+                                <a href="/qrinfo/{material_id}" class="action-btn detail-btn">详情</a>
+                            </div>
+                        </div>
+            """.format(
+                serial_number=material.serial_number,
+                status_class=status_class,
+                status_text=status_text,
+                holder_display=material.current_holder if material.current_holder else '可借用',
+                qr_code=material.qr_code,
+                material_id=material.id,
+                borrow_button='<a href="/borrow/{}" class="action-btn borrow-btn">借用</a>'.format(
+                    material.id) if material.status == 'available' else '<span class="action-btn borrow-btn" style="background: #a0aec0; color: #718096; cursor: not-allowed;">借用</span>'
+            )
+
+        html += """
                     </div>
                 </div>
-        """.format(
-            status_class=status_class,
-            delay=(materials.index(material) * 100) % 600,
-            name=material.name,
-            id=material.id,
-            badge_class=status_badge_class,
-            status_text=status_text,
-            category=material.category,
-            holder=material.current_holder or '无',
-            borrow_time=material.borrow_time.strftime('%Y-%m-%d %H:%M') if material.borrow_time else '无',
-            qr_code=material.qr_code
-        )
+        """
 
     html += """
             </div>
 
             <div class="footer">
                 <div class="footer-links">
-                    <a href="/api/materials" class="footer-link">📊 JSON数据接口</a>
-                    <a href="/debug" class="footer-link">🔧 调试页面</a>
-                    <a href="/print-qrcodes" class="footer-link">🖨️ 批量打印</a>
-                    <a href="/" class="footer-link">🏠 返回首页</a>
+                    <a href="/api/materials" class="footer-link">📊 JSON数据</a>
+                    <a href="/debug" class="footer-link">🔧 调试</a>
+                    <a href="/print-qrcodes" class="footer-link">🖨️ 打印二维码</a>
+                    <a href="/" class="footer-link">🏠 首页</a>
                 </div>
             </div>
         </div>
-
-        <script>
-            // 添加卡片悬停效果
-            document.addEventListener('DOMContentLoaded', function() {{
-                const cards = document.querySelectorAll('.material-card');
-
-                cards.forEach(card => {{
-                    card.addEventListener('mouseenter', function() {{
-                        this.style.transform = 'translateY(-8px) scale(1.02)';
-                    }});
-
-                    card.addEventListener('mouseleave', function() {{
-                        this.style.transform = 'translateY(0) scale(1)';
-                    }});
-                }});
-
-                // 添加点击波纹效果
-                cards.forEach(card => {{
-                    card.addEventListener('click', function(e) {{
-                        const ripple = document.createElement('div');
-                        ripple.style.position = 'absolute';
-                        ripple.style.borderRadius = '50%';
-                        ripple.style.backgroundColor = 'rgba(102, 126, 234, 0.3)';
-                        ripple.style.transform = 'scale(0)';
-                        ripple.style.animation = 'ripple 0.6s linear';
-                        ripple.style.pointerEvents = 'none';
-
-                        const rect = this.getBoundingClientRect();
-                        const size = Math.max(rect.width, rect.height);
-                        ripple.style.width = ripple.style.height = size + 'px';
-                        ripple.style.left = e.clientX - rect.left - size/2 + 'px';
-                        ripple.style.top = e.clientY - rect.top - size/2 + 'px';
-
-                        this.style.position = 'relative';
-                        this.appendChild(ripple);
-
-                        setTimeout(() => {{
-                            ripple.remove();
-                        }}, 600);
-                    }});
-                }});
-            }});
-
-            // 添加CSS动画
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes ripple {{
-                    to {{
-                        transform: scale(4);
-                        opacity: 0;
-                    }}
-                }}
-            `;
-            document.head.appendChild(style);
-        </script>
     </body>
     </html>
     """
@@ -679,8 +808,8 @@ def borrow_page(material_id):
     </body>
     </html>
     """.format(
-        material.name,
-        material.name,
+        f"{material.model_name} ({material.serial_number})",
+        f"{material.model_name} ({material.serial_number})",
         material.category,
         'green' if material.status == 'available' else 'red',
         '🟢 可借用' if material.status == 'available' else '🔴 已借出',
@@ -754,7 +883,8 @@ def print_all_qrcodes():
                 <div>{}</div>
                 <img src="/qrcodes/{}" width="150" height="150">
             </div>
-        """.format(material.name, material.id, material.category, material.qr_code)
+        """.format(f"{material.model_name} ({material.serial_number})", material.id, material.category,
+                   material.qr_code)
 
     html += """
             </div>
@@ -907,7 +1037,7 @@ def scan_redirect(material_id):
             <div class="container">
                 <div class="header">
                     <h2>🤖 机器人社团</h2>
-                    <h3>{material.name}</h3>
+                    <h3>{material.model_name} ({material.serial_number})</h3>
                     <div class="status">🟢 可借用</div>
                 </div>
 
@@ -1071,7 +1201,7 @@ def scan_redirect(material_id):
             <div class="container">
                 <div class="header">
                     <h2>🤖 机器人社团</h2>
-                    <h3>{material.name}</h3>
+                    <h3>{material.model_name} ({material.serial_number})</h3>
                     <div class="status">🔴 已借出</div>
                     <div class="borrower-info">
                         📍 当前借用人：{material.current_holder}<br>
@@ -1104,7 +1234,7 @@ def qr_info_page(material_id):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>物资信息 - {material.name}</title>
+        <title>物资信息 - {material.model_name} ({material.serial_number})</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -1197,13 +1327,13 @@ def qr_info_page(material_id):
         <div class="container">
             <div class="header">
                 <h2>📋 物资详细信息</h2>
-                <p>{material.name} 的完整信息</p>
+                <p>{material.model_name} ({material.serial_number}) 的完整信息</p>
             </div>
 
             <div class="info-grid">
                 <div class="info-item">
                     <span class="info-label">物资名称：</span>
-                    <span class="info-value">{material.name}</span>
+                    <span class="info-value">{material.model_name} ({material.serial_number})</span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">物资ID：</span>
@@ -1251,7 +1381,7 @@ def return_page(material_id):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>归还 {material.name}</title>
+         <title>归还 {material.model_name} ({material.serial_number})</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -1482,7 +1612,7 @@ def return_page(material_id):
                 <div class="material-info">
                     <div class="info-item">
                         <span class="info-label">物资名称：</span>
-                        <span class="info-value">{material.name}</span>
+                        <span class="info-value">{material.model_name} ({material.serial_number})</span>  
                     </div>
                     <div class="info-item">
                         <span class="info-label">分类：</span>
@@ -1641,149 +1771,600 @@ def return_material(material_id):
 
     return jsonify({
         "success": True,
-        "message": f"✅ 成功归还 [{material.name}]",
+        "message": f"✅ 成功归还 [{material.model_name} ({material.serial_number})]",
         "data": {
-            "material": material.name,
+            "material": f"{material.model_name} ({material.serial_number})",
             "borrower": borrower,
             "return_time": datetime.now().strftime("%Y-%m-%d %H:%M")
         }
     })
 
 
-@main_bp.route('/debug')
+@main_bp.route('/debug', methods=['GET', 'POST'])
 def debug_info():
-    """高级调试信息页面"""
-    materials = Material.query.all()
-    borrow_records = BorrowRecord.query.order_by(BorrowRecord.borrow_time.desc()).limit(20).all()
+    """高级调试信息页面 - 添加密码保护"""
 
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>管理员调试页面</title>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; }}
-            .section {{ margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }}
-            .material-item {{ 
-                padding: 10px; margin: 5px 0; border-left: 4px solid #52c41a; 
-                background: #f6ffed; display: flex; justify-content: space-between; align-items: center;
-            }}
-            .material-item.borrowed {{ border-left-color: #ff4d4f; background: #fff2f0; }}
-            .record-item {{ padding: 8px; margin: 3px 0; background: #f0f8ff; border-radius: 3px; }}
-            .btn {{ 
-                padding: 5px 10px; margin: 0 5px; border: none; border-radius: 3px; 
-                cursor: pointer; text-decoration: none; display: inline-block;
-            }}
-            .available-btn {{ background: #52c41a; color: white; }}
-            .borrowed-btn {{ background: #ff4d4f; color: white; }}
-            .maintenance-btn {{ background: #faad14; color: white; }}
-            .tooltip {{
-                position: relative;
-                border-bottom: 1px dotted black;
-            }}
-            .tooltip .tooltiptext {{
-                visibility: hidden;
-                width: 300px;
-                background-color: black;
-                color: #fff;
-                text-align: center;
-                border-radius: 6px;
-                padding: 5px;
-                position: absolute;
-                z-index: 1;
-                bottom: 125%;
-                left: 50%;
-                margin-left: -150px;
-                opacity: 0;
-                transition: opacity 0.3s;
-            }}
-            .tooltip:hover .tooltiptext {{
-                visibility: visible;
-                opacity: 1;
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>🤖 管理员调试页面</h1>
+    # 检查密码
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if password != '12345678':
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>管理员登录</title>
+                <style>
+                    body { font-family: Arial; margin: 50px; text-align: center; }
+                    .login-box { max-width: 400px; margin: 0 auto; padding: 30px; border: 1px solid #ddd; border-radius: 10px; }
+                    input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
+                    button { background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+                    .error { color: red; margin-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <div class="login-box">
+                    <h2>🔧 管理员登录</h2>
+                    <p>请输入管理员密码</p>
+                    <form method="POST">
+                        <input type="password" name="password" placeholder="请输入密码" required>
+                        <button type="submit">登录</button>
+                    </form>
+                    <div class="error">❌ 密码错误，请重试</div>
+                </div>
+            </body>
+            </html>
+            """
 
-        <div class="section">
-            <h2>📦 物资状态 ({count})</h2>
-    """.format(count=len(materials))
-
-    for material in materials:
-        status_color = "green" if material.status == 'available' else "red"
-        status_text = "🟢 可借用" if material.status == 'available' else "🔴 已借出"
-
-        # 构建悬停提示信息
-        tooltip_info = f"""
-        物资ID: {material.id}<br>
-        名称: {material.name}<br>
-        分类: {material.category}<br>
-        状态: {material.status}<br>
-        当前借用人: {material.current_holder or '无'}<br>
-        借用时间: {material.borrow_time.strftime('%Y-%m-%d %H:%M') if material.borrow_time else '无'}<br>
-        预计归还: {material.expected_return.strftime('%Y-%m-%d %H:%M') if material.expected_return else '无'}
+    # 如果是GET请求，显示登录页面
+    if request.method == 'GET':
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>管理员登录</title>
+            <style>
+                body { font-family: Arial; margin: 50px; text-align: center; background: #f8fafc; }
+                .login-box { 
+                    max-width: 400px; 
+                    margin: 0 auto; 
+                    padding: 40px; 
+                    background: white;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                    border: 1px solid #e2e8f0;
+                }
+                h2 { color: #2d3748; margin-bottom: 10px; }
+                p { color: #718096; margin-bottom: 20px; }
+                input { 
+                    width: 100%; 
+                    padding: 12px; 
+                    margin: 15px 0; 
+                    border: 1px solid #e2e8f0; 
+                    border-radius: 8px;
+                    font-size: 16px;
+                    transition: border-color 0.3s;
+                }
+                input:focus {
+                    outline: none;
+                    border-color: #667eea;
+                    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+                }
+                button { 
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    color: white; 
+                    padding: 12px 30px; 
+                    border: none; 
+                    border-radius: 8px; 
+                    cursor: pointer; 
+                    font-size: 16px;
+                    font-weight: 600;
+                    transition: all 0.3s;
+                    width: 100%;
+                }
+                button:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+                }
+            </style>
+        </head>
+        <body>
+            <div class="login-box">
+                <h2>🔧 管理员登录</h2>
+                <p>请输入管理员密码访问调试页面</p>
+                <form method="POST">
+                    <input type="password" name="password" placeholder="请输入密码" required>
+                    <button type="submit">进入管理后台</button>
+                </form>
+            </div>
+        </body>
+        </html>
         """
 
-        html += """
-            <div class="material-item {status_class}">
-                <div class="tooltip">
-                    <strong>{name}</strong> - <span style="color: {color}">{status}</span>
-                    <div class="tooltiptext">{tooltip}</div>
+    # 密码正确，显示调试页面
+    materials = Material.query.all()
+    borrow_records = BorrowRecord.query.order_by(BorrowRecord.borrow_time.desc()).limit(50).all()
+
+    html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>管理员调试页面</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: #f8fafc;
+                    min-height: 100vh;
+                    padding: 20px;
+                    color: #2d3748;
+                }}
+
+                .container {{
+                    max-width: 1400px;
+                    margin: 0 auto;
+                }}
+
+                .header {{
+                    background: white;
+                    padding: 25px;
+                    border-radius: 12px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+                    margin-bottom: 25px;
+                    text-align: center;
+                    border: 1px solid #e2e8f0;
+                }}
+
+                .header h1 {{
+                    color: #2d3748;
+                    font-size: 28px;
+                    font-weight: 700;
+                    margin-bottom: 8px;
+                }}
+
+                .quick-actions {{
+                    display: flex;
+                    justify-content: center;
+                    gap: 15px;
+                    margin: 20px 0;
+                    flex-wrap: wrap;
+                }}
+
+                .action-btn {{
+                    padding: 10px 20px;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    transition: all 0.3s;
+                    border: none;
+                    cursor: pointer;
+                    font-size: 14px;
+                }}
+
+                .action-btn:hover {{
+                    background: #5a67d8;
+                    transform: translateY(-2px);
+                }}
+
+                .danger-btn {{
+                    background: #e53e3e;
+                }}
+
+                .danger-btn:hover {{
+                    background: #c53030;
+                }}
+
+                .success-btn {{
+                    background: #38a169;
+                }}
+
+                .success-btn:hover {{
+                    background: #2f855a;
+                }}
+
+                .section {{
+                    background: white;
+                    margin: 20px 0;
+                    padding: 25px;
+                    border-radius: 12px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                    border: 1px solid #e2e8f0;
+                }}
+
+                .section h2 {{
+                    color: #2d3748;
+                    font-size: 22px;
+                    font-weight: 700;
+                    margin-bottom: 20px;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e2e8f0;
+                }}
+
+                .material-grid {{
+                    display: grid;
+                    gap: 15px;
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                }}
+
+                .material-item {{
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 8px;
+                    border-left: 4px solid #52c41a;
+                    transition: all 0.3s;
+                }}
+
+                .material-item.borrowed {{
+                    border-left-color: #ff4d4f;
+                    background: #fff5f5;
+                }}
+
+                .material-item.maintenance {{
+                    border-left-color: #faad14;
+                    background: #fffbe6;
+                }}
+
+                .material-item:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }}
+
+                .material-header {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 10px;
+                }}
+
+                .material-name {{
+                    font-weight: 700;
+                    color: #2d3748;
+                    font-size: 16px;
+                }}
+
+                .material-id {{
+                    color: #718096;
+                    font-size: 12px;
+                }}
+
+                .material-status {{
+                    padding: 4px 8px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+
+                .status-available {{
+                    background: #f0fff4;
+                    color: #38a169;
+                    border: 1px solid #9ae6b4;
+                }}
+
+                .status-borrowed {{
+                    background: #fed7d7;
+                    color: #e53e3e;
+                    border: 1px solid #fc8181;
+                }}
+
+                .status-maintenance {{
+                    background: #fff7e6;
+                    color: #fa8c16;
+                    border: 1px solid #ffc069;
+                }}
+
+                .material-details {{
+                    font-size: 13px;
+                    color: #718096;
+                    line-height: 1.5;
+                }}
+
+                .material-actions {{
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 10px;
+                }}
+
+                .small-btn {{
+                    padding: 4px 8px;
+                    border: none;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }}
+
+                .small-btn:hover {{
+                    opacity: 0.9;
+                    transform: translateY(-1px);
+                }}
+
+                .records-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 15px;
+                }}
+
+                .records-table th,
+                .records-table td {{
+                    padding: 12px;
+                    text-align: left;
+                    border-bottom: 1px solid #e2e8f0;
+                }}
+
+                .records-table th {{
+                    background: #f7fafc;
+                    font-weight: 600;
+                    color: #4a5568;
+                }}
+
+                .records-table tr:hover {{
+                    background: #f8f9fa;
+                }}
+
+                .status-badge {{
+                    padding: 4px 8px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+
+                .returned {{
+                    background: #f0fff4;
+                    color: #38a169;
+                }}
+
+                .borrowing {{
+                    background: #fff7e6;
+                    color: #fa8c16;
+                }}
+
+                .search-box {{
+                    margin-bottom: 20px;
+                }}
+
+                .search-box input {{
+                    width: 100%;
+                    padding: 12px;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    font-size: 14px;
+                }}
+
+                .search-box input:focus {{
+                    outline: none;
+                    border-color: #667eea;
+                    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+                }}
+
+                .stats-cards {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 15px;
+                    margin-bottom: 20px;
+                }}
+
+                .stat-card {{
+                    background: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    text-align: center;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                    border: 1px solid #e2e8f0;
+                }}
+
+                .stat-number {{
+                    font-size: 24px;
+                    font-weight: 700;
+                    margin-bottom: 5px;
+                }}
+
+                .stat-label {{
+                    font-size: 12px;
+                    color: #718096;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔧 管理员调试页面</h1>
+                    <p>系统管理和监控</p>
+
+                    <div class="quick-actions">
+                        <a href="/admin" class="action-btn">📊 返回管理页面</a>
+                        <button onclick="generateAllQRCodes()" class="action-btn success-btn">🔄 重新生成所有二维码</button>
+                        <button onclick="exportData()" class="action-btn">📤 导出数据</button>
+                        <button onclick="clearAllRecords()" class="action-btn danger-btn">🗑️ 清空借用记录</button>
+                    </div>
                 </div>
-                <div>
-                    <button class="btn available-btn" onclick="updateStatus({id}, 'available')">设为可用</button>
-                    <button class="btn borrowed-btn" onclick="updateStatus({id}, 'borrowed')">设为借出</button>
-                    <button class="btn maintenance-btn" onclick="updateStatus({id}, 'maintenance')">设为维修</button>
+
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-number">{total_materials}</div>
+                        <div class="stat-label">物资总数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{available_materials}</div>
+                        <div class="stat-label">可借用物资</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{borrowed_materials}</div>
+                        <div class="stat-label">已借出物资</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{total_records}</div>
+                        <div class="stat-label">总借用记录</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{active_records}</div>
+                        <div class="stat-label">活跃借用</div>
+                    </div>
                 </div>
-            </div>
+
+                <div class="section">
+                    <h2>📦 物资管理 ({material_count})</h2>
+                    <div class="search-box">
+                        <input type="text" id="materialSearch" placeholder="🔍 搜索物资名称或编号..." onkeyup="searchMaterials()">
+                    </div>
+                    <div class="material-grid" id="materialGrid">
         """.format(
-            status_class=material.status,
-            name=material.name,
-            color=status_color,
-            status=status_text,
-            tooltip=tooltip_info,
-            id=material.id
+        total_materials=len(materials),
+        available_materials=len([m for m in materials if m.status == 'available']),
+        borrowed_materials=len([m for m in materials if m.status == 'borrowed']),
+        total_records=len(borrow_records),
+        active_records=len([r for r in borrow_records if r.status == 'borrowed']),
+        material_count=len(materials)
+    )
+
+    for material in materials:
+        status_class = "status-available" if material.status == 'available' else "status-borrowed"
+        status_class = "status-maintenance" if material.status == 'maintenance' else status_class
+        status_text = "可用" if material.status == 'available' else "借出"
+        status_text = "维修" if material.status == 'maintenance' else status_text
+
+        item_class = "material-item"
+        if material.status == 'borrowed':
+            item_class += " borrowed"
+        elif material.status == 'maintenance':
+            item_class += " maintenance"
+
+        html += """
+                    <div class="{}" data-name="{}" data-serial="{}">
+                        <div class="material-header">
+                            <div>
+                                <div class="material-name">{}</div>
+                                <div class="material-id">#{}</div>
+                            </div>
+                            <div class="material-status {}">{}</div>
+                        </div>
+                        <div class="material-details">
+                            <div>编号: {}</div>
+                            <div>分类: {}</div>
+                            <div>借用人: {}</div>
+                            <div>借用时间: {}</div>
+                        </div>
+                        <div class="material-actions">
+                            <button class="small-btn" style="background: #3182ce; color: white;" onclick="updateStatus({}, 'available')">设为可用</button>
+                            <button class="small-btn" style="background: #e53e3e; color: white;" onclick="updateStatus({}, 'borrowed')">设为借出</button>
+                            <button class="small-btn" style="background: #faad14; color: white;" onclick="updateStatus({}, 'maintenance')">设为维修</button>
+                            <button class="small-btn" style="background: #805ad5; color: white;" onclick="viewDetails({})">详情</button>
+                        </div>
+                    </div>
+        """.format(
+            item_class,
+            material.model_name.lower(),
+            material.serial_number.lower(),
+            material.model_name,
+            material.id,
+            status_class,
+            status_text,
+            material.serial_number,
+            material.category,
+            material.current_holder or '无',
+            material.borrow_time.strftime('%m-%d %H:%M') if material.borrow_time else '无',
+            material.id, material.id, material.id, material.id
         )
 
     html += """
-        </div>
+                </div>
+            </div>
 
-        <div class="section">
-            <h2>📋 最近借用记录</h2>
+            <div class="section">
+                <h2>📋 最近借用记录 (最近50条)</h2>
+                <div class="search-box">
+                    <input type="text" id="recordSearch" placeholder="🔍 搜索借用人或学号..." onkeyup="searchRecords()">
+                </div>
+                <table class="records-table" id="recordsTable">
+                    <thead>
+                        <tr>
+                            <th>物资</th>
+                            <th>借用人</th>
+                            <th>学号</th>
+                            <th>借用时间</th>
+                            <th>归还时间</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
     """
 
     for record in borrow_records:
         material = Material.query.get(record.material_id)
-        status_color = "green" if record.status == 'returned' else "orange"
+        material_name = material.model_name if material else '未知物资'
+        status_class = "returned" if record.status == 'returned' else "borrowing"
         status_text = "✅ 已归还" if record.status == 'returned' else "⏳ 借用中"
 
-        material_name = material.name if material else '未知物资'
-        return_time = record.return_time.strftime('%m-%d %H:%M') if record.return_time else ""
-
         html += """
-            <div class="record-item">
-                <strong>{material_name}</strong> | 
-                借用人: {borrower} ({student_id}) | 
-                状态: <span style="color: {color}">{status}</span> | 
-                借用: {borrow_time} |
-                {return_text}
-            </div>
+                        <tr>
+                            <td>{}</td>
+                            <td>{}</td>
+                            <td>{}</td>
+                            <td>{}</td>
+                            <td>{}</td>
+                            <td><span class="status-badge {}">{}</span></td>
+                            <td>
+                                <button class="small-btn" style="background: #38a169; color: white;" onclick="forceReturn({})">强制归还</button>
+                            </td>
+                        </tr>
         """.format(
-            material_name=material_name,
-            borrower=record.borrower,
-            student_id=record.student_id,
-            color=status_color,
-            status=status_text,
-            borrow_time=record.borrow_time.strftime('%m-%d %H:%M'),
-            return_text=f"归还: {return_time}" if return_time else ""
+            material_name,
+            record.borrower,
+            record.student_id or '无',
+            record.borrow_time.strftime('%Y-%m-%d %H:%M'),
+            record.return_time.strftime('%Y-%m-%d %H:%M') if record.return_time else '未归还',
+            status_class,
+            status_text,
+            record.id
         )
 
     html += """
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <script>
+            function searchMaterials() {
+                const input = document.getElementById('materialSearch');
+                const filter = input.value.toLowerCase();
+                const items = document.querySelectorAll('.material-item');
+
+                items.forEach(item => {
+                    const name = item.getAttribute('data-name');
+                    const serial = item.getAttribute('data-serial');
+                    if (name.includes(filter) || serial.includes(filter)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            }
+
+            function searchRecords() {
+                const input = document.getElementById('recordSearch');
+                const filter = input.value.toLowerCase();
+                const rows = document.querySelectorAll('.records-table tbody tr');
+
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (text.includes(filter)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            }
+
             async function updateStatus(materialId, newStatus) {
                 if (!confirm('确定要修改物资状态吗？')) return;
 
@@ -1808,12 +2389,100 @@ def debug_info():
                     alert('网络错误: ' + error);
                 }
             }
+
+            async function forceReturn(recordId) {
+                if (!confirm('确定要强制归还此物资吗？')) return;
+
+                try {
+                    const response = await fetch('/api/admin/force-return', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            record_id: recordId
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        alert('强制归还成功！');
+                        location.reload();
+                    } else {
+                        alert('操作失败: ' + result.error);
+                    }
+                } catch (error) {
+                    alert('网络错误: ' + error);
+                }
+            }
+
+            async function generateAllQRCodes() {
+                if (!confirm('确定要重新生成所有二维码吗？')) return;
+
+                try {
+                    const response = await fetch('/api/generate-qrcodes');
+                    const result = await response.json();
+                    alert(result.message);
+                } catch (error) {
+                    alert('操作失败: ' + error);
+                }
+            }
+
+            function exportData() {
+                alert('导出功能开发中...');
+            }
+
+            function clearAllRecords() {
+                if (!confirm('⚠️ 确定要清空所有借用记录吗？此操作不可恢复！')) return;
+                alert('清空记录功能开发中...');
+            }
+
+            function viewDetails(materialId) {
+                window.open('/qrinfo/' + materialId, '_blank');
+            }
         </script>
     </body>
     </html>
     """
-
     return html
+
+
+# 添加强制归还API
+@main_bp.route('/api/admin/force-return', methods=['POST'])
+def admin_force_return():
+    """管理员强制归还物资"""
+    data = request.get_json()
+    record_id = data.get('record_id')
+
+    if not record_id:
+        return jsonify({"error": "缺少参数"}), 400
+
+    record = BorrowRecord.query.get(record_id)
+    if not record:
+        return jsonify({"error": "记录不存在"}), 404
+
+    material = Material.query.get(record.material_id)
+    if not material:
+        return jsonify({"error": "物资不存在"}), 404
+
+    # 强制归还
+    material.status = 'available'
+    material.current_holder = None
+    material.borrow_time = None
+    material.expected_return = None
+
+    record.status = 'returned'
+    record.return_time = datetime.now()
+
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": f"✅ 已强制归还 [{material.model_name} ({material.serial_number})]",
+        "data": {
+            "material": f"{material.model_name} ({material.serial_number})",
+            "borrower": record.borrower,
+            "return_time": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+    })
 
 
 @main_bp.route('/api/admin/update-status', methods=['POST'])
@@ -1859,13 +2528,11 @@ def admin_update_status():
 
     db.session.commit()
 
-    print(f"🔧 管理员更新: {material.name} {old_status} -> {new_status}")
-
     return jsonify({
         "success": True,
-        "message": f"已更新 {material.name} 状态为 {new_status}",
+        "message": f"已更新 {material.model_name} ({material.serial_number}) 状态为 {new_status}",
         "data": {
-            "material": material.name,
+            "material": f"{material.model_name} ({material.serial_number})",
             "old_status": old_status,
             "new_status": new_status
         }

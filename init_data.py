@@ -23,23 +23,54 @@ def init_materials():
 
         # 定义实验室常用物资
         materials_data = [
-            {"name": "3508电机", "category": "电机"},
-            {"name": "6020电机", "category": "电机"},
-            {"name": "2006电机", "category": "电机"},
-            {"name": "4310电机", "category": "电机"},
-            {"name": "C620电调", "category": "电调"},
-            {"name": "C610电调", "category": "电调"},
-            {"name": "C板", "category": "控制板"},
-            {"name": "达妙开发板", "category": "控制板"},
+            # C型开发板
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-001", "category": "控制板"},
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-002", "category": "控制板"},
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-003", "category": "控制板"},
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-004", "category": "控制板"},
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-005", "category": "控制板"},
+            {"model_name": "C型开发板（stm32F407）", "serial_number": "C板-006", "category": "控制板"},
+            # ... 总共10个
+
+            # 3508电机
+            {"model_name": "3508电机", "serial_number": "3508-001", "category": "电机"},
+            {"model_name": "3508电机", "serial_number": "3508-002", "category": "电机"},
+            # ... 总共5个
+
+            # C620电调
+            {"model_name": "C620电调（3508用）", "serial_number": "C620-001", "category": "电调"},
+            {"model_name": "C620电调（3508用）", "serial_number": "C620-002", "category": "电调"},
+            # ... 总共5个
+
+            # H7开发板
+            {"model_name": "H7开发板", "serial_number": "H7-001", "category": "控制板"},
+            {"model_name": "H7开发板", "serial_number": "H7-002", "category": "控制板"},
+            # ... 总共5个
+
+            # 4310电机
+            {"model_name": "达妙4310电机", "serial_number": "4310-001", "category": "电机"},
+            {"model_name": "达妙4310电机", "serial_number": "4310-002", "category": "电机"},
+            # ... 总共5个
+
+            # 大疆遥控器
+            {"model_name": "大疆官方遥控器", "serial_number": "遥控器-001", "category": "遥控器"},
+            {"model_name": "大疆官方遥控器", "serial_number": "遥控器-002", "category": "遥控器"},
+            # ... 总共5个
+
+            # 接收机
+            {"model_name": "大疆官方遥控器接收机", "serial_number": "接收机-001", "category": "接收机"},
+            {"model_name": "大疆官方遥控器接收机", "serial_number": "接收机-002", "category": "接收机"},
+            # ... 总共4个
         ]
 
         created_count = 0
         for item in materials_data:
-            # 检查是否已存在
-            existing = Material.query.filter_by(name=item["name"]).first()
+            # 检查是否已存在（通过编号检查）
+            existing = Material.query.filter_by(serial_number=item["serial_number"]).first()
             if not existing:
                 material = Material(
-                    name=item["name"],
+                    model_name=item["model_name"],
+                    serial_number=item["serial_number"],
                     category=item["category"]
                 )
                 db.session.add(material)
@@ -53,7 +84,7 @@ def init_materials():
         print(f"🔄 开始为 {len(all_materials)} 个物资生成二维码...")
 
         for material in all_materials:
-            qr_filename = generate_qr_code(material.id, material.name)
+            qr_filename = generate_qr_code(material.id, material.model_name)  # 改为 model_name
             material.qr_code = qr_filename
 
         db.session.commit()
